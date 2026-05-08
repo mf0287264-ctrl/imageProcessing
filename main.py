@@ -26,9 +26,8 @@ from PIL import Image, ImageTk
 
 from image_processor import (
     apply_filter,
-    adjust_brightness, adjust_contrast, adjust_exposure,
-    adjust_highlights, adjust_shadows, adjust_saturation,
-    adjust_warmth, apply_vignette,
+    adjust_brightness, adjust_contrast, adjust_saturation,
+    adjust_warmth,
     rotate_image, zoom_image,
     histogram_equalization, gamma_correction,
 )
@@ -60,11 +59,7 @@ FILTERS  = ["Laplacian", "Sobel", "Averaging", "Median", "Gaussian", "Bilateral"
 
 LIGHT_SLIDERS = [
     ("Brightness", -100, 100),
-    ("Exposure",   -100, 100),
     ("Contrast",   -100, 100),
-    ("Highlights", -100, 100),
-    ("Shadows",    -100, 100),
-    ("Vignette",      0, 100),
 ]
 COLOR_SLIDERS = [
     ("Saturation", -100, 100),
@@ -467,11 +462,7 @@ class VisionEditor(tk.Tk):
         sv  = self._slider_vars
 
         img = adjust_brightness(img,  sv["Brightness"].get())
-        img = adjust_exposure(img,    sv["Exposure"].get())
         img = adjust_contrast(img,    sv["Contrast"].get())
-        img = adjust_highlights(img,  sv["Highlights"].get())
-        img = adjust_shadows(img,     sv["Shadows"].get())
-        img = apply_vignette(img,     sv["Vignette"].get())
         img = adjust_saturation(img,  sv["Saturation"].get())
         img = adjust_warmth(img,      sv["Warmth"].get())
 

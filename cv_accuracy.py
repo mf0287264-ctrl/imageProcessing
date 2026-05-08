@@ -1,97 +1,167 @@
 """
 cv_accuracy.py
 --------------
-Task Two: The CV Accuracy Challenge.
-Face Detection using Haar Cascades on original vs. pre-processed images.
+Task Two: CV Accuracy Challenge for face detection.
+
+Runs the same OpenCV Haar-cascade detector on:
+1. The uploaded low-quality original image.
+2. A processed version improved with Task One histogram equalization.
 """
 
 import time
+
 import cv2
 import numpy as np
-from image_processor import histogram_equalization, adjust_brightness
+
+from image_processor import histogram_equalization
 
 
-def _load_cascade():
-    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    cascade = cv2.CascadeClassifier(cascade_path)
-    return cascade
+def _load_cascades():
+    """Load frontal and profile cascades for wider face angle coverage."""
+    frontal = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    alt2 = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_frontalface_alt2.xml")
+    profile = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_profileface.xml")
+    return frontal, alt2, profile
 
 
-def _degrade_image(image: np.ndarray) -> np.ndarray:
-    """Simulate a low-quality image: darken + add Gaussian noise."""
-    dark = cv2.convertScaleAbs(image, alpha=0.35, beta=-30)
-    noise = np.random.normal(0, 25, dark.shape).astype(np.int16)
-    noisy = np.clip(dark.astype(np.int16) + noise, 0, 255).astype(np.uint8)
-    return noisy
+def _nms_boxes(boxes, overlap_thresh=0.35):
+    """Remove duplicate overlapping bounding boxes."""
+    if len(boxes) == 0:
+        return []
+
+    arr = np.array(boxes, dtype=np.float32)
+    x1, y1 = arr[:, 0], arr[:, 1]
+    x2, y2 = arr[:, 0] + arr[:, 2], arr[:, 1] + arr[:, 3]
+    areas = (x2 - x1) * (y2 - y1)
+    order = np.argsort(areas)[::-1]
+    keep = []
+
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+        inter = np.maximum(0.0, xx2 - xx1) * np.maximum(0.0, yy2 - yy1)
+        iou = inter / (areas[i] + areas[order[1:]] - inter + 1e-6)
+        order = order[np.where(iou <= overlap_thresh)[0] + 1]
+
+    return [boxes[k] for k in keep]
 
 
-def detect_faces(image: np.ndarray, cascade: cv2.CascadeClassifier):
+def detect_faces(image: np.ndarray, frontal=None, alt2=None, profile=None):
     """
-    Run face detection.
-    Returns (faces_rect_list, elapsed_ms, annotated_image).
+    Detect faces with frontal and profile Haar cascades.
+
+    Returns: (faces_list, elapsed_ms, annotated_image)
     """
+    if frontal is None:
+        frontal, alt2, profile = _load_cascades()
+
+    t0 = time.time()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    t0   = time.time()
-    faces = cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(30, 30),
-    )
-    elapsed_ms = (time.time() - t0) * 1000
+    gray_flip = cv2.flip(gray, 1)
+    width = image.shape[1]
+    all_faces = []
 
-    annotated = image.copy()
-    if len(faces):
-        for (x, y, w, h) in faces:
-            cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    detections = [
+        frontal.detectMultiScale(
+            gray,
+            scaleFactor=1.05,
+            minNeighbors=4,
+            minSize=(40, 40),
+            maxSize=(600, 600),
+            flags=cv2.CASCADE_SCALE_IMAGE,
+        ),
+        alt2.detectMultiScale(
+            gray,
+            scaleFactor=1.05,
+            minNeighbors=4,
+            minSize=(40, 40),
+            maxSize=(600, 600),
+        ),
+        profile.detectMultiScale(
+            gray,
+            scaleFactor=1.05,
+            minNeighbors=3,
+            minSize=(40, 40),
+        ),
+    ]
+
+    for det in detections:
+        if len(det):
+            all_faces.extend(det.tolist())
+
+    det = profile.detectMultiScale(
+        gray_flip,
+        scaleFactor=1.05,
+        minNeighbors=3,
+        minSize=(40, 40),
+    )
+    if len(det):
+        for x, y, w, h in det.tolist():
+            all_faces.append([width - x - w, y, w, h])
+
+    faces = _nms_boxes(all_faces, overlap_thresh=0.35)
+    elapsed_ms = (time.time() - t0) * 1000
+    annotated = _annotate_faces(image, faces)
 
     return faces, elapsed_ms, annotated
 
 
+def _annotate_faces(image: np.ndarray, faces):
+    annotated = image.copy()
+    for idx, (x, y, w, h) in enumerate(faces):
+        cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 230, 80), 2)
+        label = f"Face {idx + 1}"
+        label_w = len(label) * 9
+        cv2.rectangle(annotated, (x, y - 20), (x + label_w, y),
+                      (0, 230, 80), -1)
+        cv2.putText(annotated, label, (x + 3, y - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0),
+                    1, cv2.LINE_AA)
+    return annotated
+
+
 def run_accuracy_experiment(image: np.ndarray):
     """
-    Full pipeline:
-    1. Degrade the image.
-    2. Detect faces on the degraded image (baseline).
-    3. Enhance with histogram equalization.
-    4. Detect faces on the enhanced image.
-    5. Return a results dict.
+    Baseline vs processed face detection experiment.
+
+    Haar cascades do not provide a ground-truth accuracy score by default, so
+    this report uses success rate based on detected face count relative to the
+    best count found by either run.
     """
-    cascade = _load_cascade()
+    frontal, alt2, profile = _load_cascades()
 
-    # ── Step 1: Degrade ──────────────────────────────
-    degraded = _degrade_image(image)
+    baseline_faces, baseline_time, baseline_annotated = detect_faces(
+        image, frontal, alt2, profile)
 
-    # ── Step 2: Baseline detection ───────────────────
-    orig_faces, orig_time, orig_annotated = detect_faces(degraded, cascade)
+    t0 = time.time()
+    processed = histogram_equalization(image)
+    processing_ms = (time.time() - t0) * 1000
 
-    # ── Step 3: Pre-process (enhance) ────────────────
-    enhanced = histogram_equalization(degraded)
+    processed_faces, processed_time, processed_annotated = detect_faces(
+        processed, frontal, alt2, profile)
 
-    # ── Step 4: Post-processing detection ────────────
-    enh_faces, enh_time, enh_annotated = detect_faces(enhanced, cascade)
+    best_count = max(len(baseline_faces), len(processed_faces), 1)
+    baseline_accuracy = (len(baseline_faces) / best_count) * 100
+    processed_accuracy = (len(processed_faces) / best_count) * 100
 
-    # ── Step 5: Build results dict ───────────────────
-    # Accuracy: use the count ratio vs. reference run on the original
-    ref_faces, _, _ = detect_faces(image, cascade)
-    ref_count = max(len(ref_faces), 1)
-
-    orig_accuracy = min(100.0, (len(orig_faces) / ref_count) * 100)
-    enh_accuracy  = min(100.0, (len(enh_faces)  / ref_count) * 100)
-
-    results = {
-        "original_image":     image,
-        "degraded_image":     degraded,
-        "enhanced_image":     enhanced,
-        "orig_annotated":     orig_annotated,
-        "enh_annotated":      enh_annotated,
-        "ref_faces":          len(ref_faces),
-        "orig_faces":         len(orig_faces),
-        "enh_faces":          len(enh_faces),
-        "orig_accuracy_pct":  round(orig_accuracy, 1),
-        "enh_accuracy_pct":   round(enh_accuracy, 1),
-        "orig_time_ms":       round(orig_time, 2),
-        "enh_time_ms":        round(enh_time, 2),
-        "overhead_ms":        round(enh_time - orig_time, 2),
+    return {
+        "original_image": image,
+        "processed_image": processed,
+        "original_annotated": baseline_annotated,
+        "processed_annotated": processed_annotated,
+        "original_faces": len(baseline_faces),
+        "processed_faces": len(processed_faces),
+        "original_accuracy_pct": round(baseline_accuracy, 1),
+        "processed_accuracy_pct": round(processed_accuracy, 1),
+        "original_time_ms": round(baseline_time, 2),
+        "processed_time_ms": round(processed_time, 2),
+        "processing_ms": round(processing_ms, 2),
+        "total_processed_ms": round(processing_ms + processed_time, 2),
     }
-    return results
