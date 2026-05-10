@@ -26,8 +26,7 @@ from PIL import Image, ImageTk
 
 from image_processor import (
     apply_filter,
-    adjust_brightness, adjust_contrast, adjust_saturation,
-    adjust_warmth,
+    adjust_brightness, adjust_contrast,
     rotate_image, zoom_image,
     histogram_equalization, gamma_correction,
 )
@@ -60,10 +59,6 @@ FILTERS  = ["Laplacian", "Sobel", "Averaging", "Median", "Gaussian", "Bilateral"
 LIGHT_SLIDERS = [
     ("Brightness", -100, 100),
     ("Contrast",   -100, 100),
-]
-COLOR_SLIDERS = [
-    ("Saturation", -100, 100),
-    ("Warmth",     -100, 100),
 ]
 
 
@@ -101,7 +96,7 @@ class VisionEditor(tk.Tk):
 
         # ── State ──────────────────────────────────────────────────────
         self._original_image: np.ndarray | None = None   # never modified
-        self._working_image:  np.ndarray | None = None   # after light/color
+        self._working_image:  np.ndarray | None = None   # after light
         self._output_image:   np.ndarray | None = None   # after filter
 
         self._active_filter: str | None  = None
@@ -159,7 +154,7 @@ class VisionEditor(tk.Tk):
         body = tk.Frame(self, bg=BG)
         body.pack(fill=tk.BOTH, expand=True)
 
-        # Left side panel (light + color sliders)
+        # Left side panel (light sliders + tools)
         self._build_side_panel(body)
 
         # Two image columns
@@ -179,7 +174,7 @@ class VisionEditor(tk.Tk):
         head.pack(fill=tk.X, padx=14, pady=(12, 8))
         tk.Label(head, text="ADJUSTMENTS", bg=SIDE_BG, fg=ACCENT,
                  font=("Courier New", 12, "bold")).pack(anchor="w")
-        tk.Label(head, text="Tone, color, geometry", bg=SIDE_BG, fg=TEXT_DIM,
+        tk.Label(head, text="Tone and geometry", bg=SIDE_BG, fg=TEXT_DIM,
                  font=("Courier New", 8)).pack(anchor="w", pady=(1, 0))
 
         canvas = tk.Canvas(side, bg=SIDE_BG, highlightthickness=0)
@@ -204,8 +199,6 @@ class VisionEditor(tk.Tk):
 
         # LIGHT section
         self._make_section(inner, "LIGHT", LIGHT_SLIDERS)
-        # COLOR section
-        self._make_section(inner, "COLOR", COLOR_SLIDERS)
 
         # Geometric tools
         geo_card = self._make_sidebar_card(inner, "GEOMETRY", "Rotate and zoom")
@@ -276,14 +269,13 @@ class VisionEditor(tk.Tk):
     def _make_section(self, parent, title: str, slider_defs: list):
         subtitles = {
             "LIGHT": "Balance image luminance",
-            "COLOR": "Tune saturation and warmth",
         }
         card = self._make_sidebar_card(parent, title, subtitles.get(title, ""))
         for name, lo, hi in slider_defs:
             var = tk.DoubleVar(value=0)
             self._slider_vars[name] = var
             self._make_slider_row(card, name, var, lo, hi,
-                                  lambda v, n=name: self._on_light_color(n))
+                                  lambda v, n=name: self._on_light(n))
 
     def _make_slider_row(self, parent, label: str, var: tk.DoubleVar,
                          lo: float, hi: float, command,
@@ -451,10 +443,10 @@ class VisionEditor(tk.Tk):
         self._gamma_var.set(1.0)
 
     # ──────────────────────────────────────────────────────────────────
-    #  LIGHT / COLOR SLIDERS
+    #  LIGHT SLIDERS
     # ──────────────────────────────────────────────────────────────────
 
-    def _on_light_color(self, changed_name):
+    def _on_light(self, changed_name):
         """Rebuild working image from original applying all slider values."""
         if self._original_image is None:
             return
@@ -463,8 +455,6 @@ class VisionEditor(tk.Tk):
 
         img = adjust_brightness(img,  sv["Brightness"].get())
         img = adjust_contrast(img,    sv["Contrast"].get())
-        img = adjust_saturation(img,  sv["Saturation"].get())
-        img = adjust_warmth(img,      sv["Warmth"].get())
 
         self._working_image = img
         # reapply active filter on top

@@ -84,22 +84,6 @@ def adjust_contrast(image: np.ndarray, value: float) -> np.ndarray:
     return cv2.convertScaleAbs(image, alpha=alpha, beta=0)
 
 
-def adjust_saturation(image: np.ndarray, value: float) -> np.ndarray:
-    """value in [-100, 100]"""
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.int32)
-    hsv[:, :, 1] = np.clip(hsv[:, :, 1] + int(value * 1.27), 0, 255)
-    return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-
-
-def adjust_warmth(image: np.ndarray, value: float) -> np.ndarray:
-    """value in [-100, 100]; positive is warmer, negative is cooler."""
-    img = image.astype(np.int32)
-    shift = int(value * 0.5)
-    img[:, :, 2] = np.clip(img[:, :, 2] + shift, 0, 255)
-    img[:, :, 0] = np.clip(img[:, :, 0] - shift, 0, 255)
-    return img.astype(np.uint8)
-
-
 # GEOMETRIC
 
 def rotate_image(image: np.ndarray, angle: float) -> np.ndarray:
