@@ -41,6 +41,7 @@ class CVAccuracyWindow(tk.Toplevel):
         self.image = image
         self._refs = []
         self._table = {}
+        self._expected_faces = tk.IntVar(value=1)
         self.title("Task Two - CV Accuracy Challenge")
         self.configure(bg=self.BG)
         self.resizable(True, False)
@@ -59,11 +60,50 @@ class CVAccuracyWindow(tk.Toplevel):
         ).pack()
         tk.Label(
             hdr,
-            text="Face detection: low-quality original vs histogram-equalized image",
+            text="Enter the real face count, then compare original vs processed",
             bg="#090918",
             fg=self.DIM,
             font=("Courier New", 9),
         ).pack(pady=(2, 0))
+
+        controls = tk.Frame(hdr, bg="#090918")
+        controls.pack(pady=(8, 0))
+        tk.Label(
+            controls,
+            text="Expected faces:",
+            bg="#090918",
+            fg=self.TEXT,
+            font=("Courier New", 9),
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        self._expected_spin = tk.Spinbox(
+            controls,
+            from_=1,
+            to=50,
+            textvariable=self._expected_faces,
+            width=5,
+            bg=self.CARD,
+            fg=self.TEXT,
+            buttonbackground=self.PANEL,
+            insertbackground=self.TEXT,
+            relief=tk.FLAT,
+            font=("Courier New", 9, "bold"),
+        )
+        self._expected_spin.pack(side=tk.LEFT)
+        self._run_btn = tk.Button(
+            controls,
+            text="Run",
+            command=self._run_experiment,
+            bg=self.ACCENT,
+            fg="#000000",
+            activebackground="#66eaff",
+            activeforeground="#000000",
+            font=("Courier New", 9, "bold"),
+            relief=tk.FLAT,
+            padx=14,
+            pady=2,
+            cursor="hand2",
+        )
+        self._run_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         img_row = tk.Frame(self, bg=self.BG)
         img_row.pack(fill=tk.X, padx=12, pady=10)
@@ -122,7 +162,7 @@ class CVAccuracyWindow(tk.Toplevel):
             info,
             text=("1. Run Haar Cascades on the original image   "
                   "2. Improve it with Histogram Equalization   "
-                  "3. Run the same detector again"),
+                  "3. Run the same face detector again"),
             bg=self.CARD,
             fg=self.TEXT,
             font=("Courier New", 8),
@@ -156,8 +196,10 @@ class CVAccuracyWindow(tk.Toplevel):
             ).grid(row=1, column=col, sticky="ew")
 
         metrics = [
+            "Expected Faces",
             "Faces Detected",
             "Accuracy (%)",
+            "Avg Confidence (%)",
             "Inference Speed (ms)",
             "Processing Delay (ms)",
             "Total Time (ms)",
@@ -227,15 +269,34 @@ class CVAccuracyWindow(tk.Toplevel):
         self._status.pack(pady=(0, 10))
 
     def _run_experiment(self):
+        expected_faces = self._read_expected_faces()
+        self._status.configure(text="Running Task Two experiment...",
+                               fg="#ffcc00")
+        self._run_btn.configure(state=tk.DISABLED)
+
         def worker():
             try:
-                result = run_accuracy_experiment(self.image)
+                result = run_accuracy_experiment(self.image, expected_faces)
                 self.after(0, lambda: self._fill_results(result))
             except Exception as e:
-                self.after(0, lambda: messagebox.showerror(
-                    "Error", str(e), parent=self))
+                msg = str(e)
+                self.after(0, lambda: self._show_error(msg))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _show_error(self, message: str):
+        self._run_btn.configure(state=tk.NORMAL)
+        self._status.configure(text="Experiment failed", fg=self.ORANGE)
+        messagebox.showerror("Error", message, parent=self)
+
+    def _read_expected_faces(self) -> int:
+        try:
+            expected = int(self._expected_faces.get())
+        except (tk.TclError, ValueError):
+            expected = 1
+        expected = min(50, max(1, expected))
+        self._expected_faces.set(expected)
+        return expected
 
     def _fill_results(self, result: dict):
         images = [
@@ -243,9 +304,11 @@ class CVAccuracyWindow(tk.Toplevel):
             result["processed_annotated"],
         ]
         captions = [
-            (f"Faces: {result['original_faces']} | "
+            (f"Expected: {result['expected_faces']} | Faces: "
+             f"{result['original_faces']} | "
              f"Accuracy: {result['original_accuracy_pct']}%"),
-            (f"Faces: {result['processed_faces']} | "
+            (f"Expected: {result['expected_faces']} | Faces: "
+             f"{result['processed_faces']} | "
              f"Accuracy: {result['processed_accuracy_pct']}%"),
         ]
         for label, image, caption, cap_label in zip(
@@ -256,6 +319,10 @@ class CVAccuracyWindow(tk.Toplevel):
             cap_label.configure(text=caption)
 
         rows = {
+            "Expected Faces": (
+                str(result["expected_faces"]),
+                str(result["expected_faces"]),
+            ),
             "Faces Detected": (
                 str(result["original_faces"]),
                 str(result["processed_faces"]),
@@ -263,6 +330,10 @@ class CVAccuracyWindow(tk.Toplevel):
             "Accuracy (%)": (
                 f"{result['original_accuracy_pct']}%",
                 f"{result['processed_accuracy_pct']}%",
+            ),
+            "Avg Confidence (%)": (
+                f"{result['original_confidence_pct']}%",
+                f"{result['processed_confidence_pct']}%",
             ),
             "Inference Speed (ms)": (
                 f"{result['original_time_ms']} ms",
@@ -302,3 +373,4 @@ class CVAccuracyWindow(tk.Toplevel):
                   f"{result['processing_ms']} ms"),
             fg=self.GREEN,
         )
+        self._run_btn.configure(state=tk.NORMAL)
